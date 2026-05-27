@@ -17,7 +17,10 @@ body {
   user-select: none;
   -webkit-user-select: none;
   overflow-x: hidden;
-  zoom: 0.75;
+  overscroll-behavior-y: contain;
+}
+html {
+  overscroll-behavior-y: contain;
 }
 
 /* ── Theme Variables ── */
@@ -515,6 +518,50 @@ body.light {
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+/* Timer */
+.game-timer {
+  text-align: center;
+  margin-bottom: 12px;
+}
+.timer-val {
+  font-family: 'Space Mono', monospace;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--green);
+  letter-spacing: 2px;
+}
+.timer-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+/* Mobile fixes */
+@media (max-width: 600px) {
+  .app-shell { padding: 12px 8px; }
+  #home-screen { max-width: 100%; }
+  .home-title { font-size: 60px; }
+  #game-screen { max-width: 100%; }
+  .grid-outer { width: 100%; padding: 6px; }
+  .grid-inner { gap: 6px; }
+  .score-row { gap: 6px; }
+  .score-val { font-size: 20px; }
+  .topbar-title { font-size: 26px; }
+  .bottom-nav { padding: 8px 4px; }
+  .nav-circle { width: 42px; height: 42px; }
+  .timer-val { font-size: 24px; }
+  .game-btn-row { gap: 6px; }
+  .wide-btn { padding: 12px 14px; font-size: 14px; }
+}
+
+/* Prevent pull-to-refresh on game screen */
+#game-screen {
+  touch-action: none;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -583,7 +630,10 @@ body.light {
     </button>
   </div>
 
-  <div class="game-subtitle">Join the numbers and get to the 2048 tile!</div>
+  <div class="game-timer">
+    <div class="timer-lbl">Time</div>
+    <div class="timer-val" id="timer-el">0:00</div>
+  </div>
 
   <div class="grid-outer">
     <div class="grid-inner" id="grid-inner">
@@ -610,13 +660,6 @@ body.light {
         <svg viewBox="0 0 24 24"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
       </div>
       <span class="nav-lbl">Undo</span>
-    </div>
-    <div class="nav-item" id="btn-hint">
-      <div class="nav-circle">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <div class="nav-badge" id="hint-badge">3</div>
-      </div>
-      <span class="nav-lbl">Hint</span>
     </div>
     <div class="nav-item" id="btn-nav-stats">
       <div class="nav-circle">
@@ -762,7 +805,6 @@ let score=0;
 let undoStack=[];
 let wonAlready=false;
 let gameActive=false;
-let hints=3;
 let sessionStart=0, sessionElap=0;
 let timerTick=null;
 
@@ -861,9 +903,6 @@ function startGame(loadSave=false){
   undoStack=[];
   wonAlready=false;
   gameActive=true;
-  hints=3;
-  const hb=document.getElementById('hint-badge');
-  hb.textContent=3; hb.style.display='flex';
 
   if(loadSave){
     board=JSON.parse(gs(K.saveBoard,'null'))||Array(16).fill(0);
@@ -1031,43 +1070,24 @@ function doUndo(){
   saveGame();
 }
 
-function doHint(){
-  if(hints<=0){showToast('No hints left!');return;}
-  hints--;
-  const hb=document.getElementById('hint-badge');
-  hb.textContent=hints;
-  if(hints===0)hb.style.display='none';
-  let best=null,bestScore=-1;
-  for(const dir of['up','down','left','right']){
-    let merges=0,pts=0;
-    const tb=board.slice();
-    for(let i=0;i<4;i++){
-      const line=[];
-      for(let j=0;j<4;j++){
-        if(dir==='left')  line.push(i*4+j);
-        if(dir==='right') line.push(i*4+(3-j));
-        if(dir==='up')    line.push(j*4+i);
-        if(dir==='down')  line.push((3-j)*4+i);
-      }
-      const vals=line.map(x=>tb[x]).filter(v=>v);
-      for(let k=0;k<vals.length-1;k++) if(vals[k]===vals[k+1]){merges++;pts+=vals[k]*2;}
-    }
-    if(pts>bestScore){bestScore=pts;best=dir;}
-  }
-  showToast(`💡 Try swiping ${best}!`);
-}
 
 // ════════════════════════════════════════════════
 // TIMER
 // ════════════════════════════════════════════════
+function updateTimerDisplay(){
+  const m=Math.floor(sessionElap/60), s=sessionElap%60;
+  document.getElementById('timer-el').textContent=m+':'+String(s).padStart(2,'0');
+}
 function startTimer(){
   clearInterval(timerTick);
   sessionStart=Date.now()-sessionElap*1000;
-  timerTick=setInterval(()=>{ sessionElap=Math.floor((Date.now()-sessionStart)/1000); },1000);
+  timerTick=setInterval(()=>{ sessionElap=Math.floor((Date.now()-sessionStart)/1000); updateTimerDisplay(); },1000);
+  updateTimerDisplay();
 }
 function stopTimer(){
   clearInterval(timerTick);
   sessionElap=Math.floor((Date.now()-sessionStart)/1000);
+  updateTimerDisplay();
 }
 
 // ════════════════════════════════════════════════
@@ -1304,9 +1324,16 @@ document.addEventListener('mouseup',e=>{
   else move(dy>0?'down':'up');
 });
 document.addEventListener('touchstart',e=>{
-  if(document.getElementById('game-screen').classList.contains('active'))
+  if(document.getElementById('game-screen').classList.contains('active')){
     swipeStart={x:e.touches[0].clientX,y:e.touches[0].clientY};
-},{passive:true});
+    e.preventDefault();
+  }
+},{passive:false});
+document.addEventListener('touchmove',e=>{
+  if(document.getElementById('game-screen').classList.contains('active')){
+    e.preventDefault();
+  }
+},{passive:false});
 document.addEventListener('touchend',e=>{
   if(!swipeStart)return;
   const dx=e.changedTouches[0].clientX-swipeStart.x;
@@ -1348,7 +1375,6 @@ document.getElementById('btn-restart').addEventListener('click',()=>{
 document.getElementById('btn-go-stats').addEventListener('click',()=>{ stopTimer(); saveGame(); showScreen('stats-screen'); });
 document.getElementById('btn-nav-stats').addEventListener('click',()=>{ stopTimer(); saveGame(); showScreen('stats-screen'); });
 document.getElementById('btn-undo').addEventListener('click',doUndo);
-document.getElementById('btn-hint').addEventListener('click',doHint);
 document.getElementById('btn-home-game').addEventListener('click',()=>{ stopTimer(); saveGame(); showScreen('home-screen'); });
 document.getElementById('btn-share-nav').addEventListener('click',shareStats);
 
